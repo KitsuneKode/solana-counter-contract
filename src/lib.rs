@@ -9,13 +9,13 @@ use solana_program::{
     pubkey::Pubkey,
 };
 
+#[derive(BorshDeserialize, BorshSerialize, Debug)]
 enum InstructionType {
     Increment(u32),
     Decrement(u32),
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Debug)]
-
 pub struct CounterAccount {
     pub count: u32,
 }
@@ -36,9 +36,21 @@ pub fn counter_contract(
         return Err(ProgramError::IncorrectProgramId);
     }
 
-    let mut counter = CounterAccount::try_from_slice(&acc.data.borrow())?;
-    counter.count += 1;
-    counter.serialize(&mut *acc.data.borrow_mut())?;
+    let instruction_data = InstructionType::try_from_slice(_instruction_data)?;
+
+    let mut counter_data = CounterAccount::try_from_slice(&acc.data.borrow())?;
+
+    match instruction_data {
+        InstructionType::Increment(value) => {
+            counter_data.count += value;
+        }
+
+        InstructionType::Decrement(value) => {
+            counter_data.count -= value;
+        }
+    }
+
+    counter_data.serialize(&mut *acc.data.borrow_mut())?;
 
     Ok(())
 }
