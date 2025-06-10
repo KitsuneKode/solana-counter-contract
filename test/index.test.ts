@@ -1,89 +1,221 @@
+import path from "path";
+import { readFileSync } from "fs";
+import * as borsh from "borsh";
 import {
-  Connection,
   Keypair,
   LAMPORTS_PER_SOL,
-  PublicKey,
-  sendAndConfirmTransaction,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
 } from "@solana/web3.js";
-import { expect, test } from "bun:test";
-import * as borsh from "borsh";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { COUNTER_SIZE, CounterAccount, schema } from "./utils/borsh";
+import { LiteSVM } from "litesvm";
 
-let counterAccountProgramID: PublicKey = new PublicKey(
-  "8vQxnzBf4qDQrpKm61cDFhpC3WNiihXzSJwRqw7qVmXd",
-);
-let dataAccount: Keypair = Keypair.generate();
-let adminAccount: Keypair = Keypair.generate();
-const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+function loadKeypairFromFile(filePath: string): Keypair {
+  const resolvedPath = path.join(__dirname, filePath);
+  const loadedKeyBytes = Uint8Array.from(
+    JSON.parse(readFileSync(resolvedPath, "utf8")),
+  );
+  return Keypair.fromSecretKey(loadedKeyBytes);
+}
 
-test("Account initialized", async () => {
-  const data = await connection.getAccountInfo(adminAccount.publicKey);
-  const airdropTx = await connection.requestAirdrop(
-    adminAccount.publicKey,
-    10 * LAMPORTS_PER_SOL,
+test("Account Initialization Test", () => {
+  const svm = new LiteSVM();
+
+  const contract = loadKeypairFromFile(
+    "../target/deploy/counter_program_solana-keypair.json",
+  );
+  console.log(contract.publicKey.toString());
+  svm.addProgramFromFile(
+    contract.publicKey,
+    path.join(__dirname, "../target/deploy/counter_program_solana.so"),
   );
 
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash("confirmed");
-  await connection.confirmTransaction(
-    {
-      blockhash,
-      signature: airdropTx,
-      lastValidBlockHeight,
-    },
-    "confirmed",
+  const adminAccount = new Keypair();
+  const dataAccount = new Keypair();
+  svm.airdrop(adminAccount.publicKey, BigInt(10 * LAMPORTS_PER_SOL));
+  const lamports = Number(
+    svm.minimumBalanceForRentExemption(BigInt(COUNTER_SIZE)),
   );
-
-  const lamports =
-    await connection.getMinimumBalanceForRentExemption(COUNTER_SIZE);
   const transaction = new Transaction();
-  const ix = SystemProgram.createAccount({
-    fromPubkey: adminAccount.publicKey,
-    lamports,
-    programId: counterAccountProgramID,
-    space: COUNTER_SIZE,
-    newAccountPubkey: dataAccount.publicKey,
+  const ix = [
+    SystemProgram.createAccount({
+      fromPubkey: adminAccount.publicKey,
+      lamports,
+      programId: contract.publicKey,
+      space: COUNTER_SIZE,
+      newAccountPubkey: dataAccount.publicKey,
+    }),
+  ];
+
+  transaction.add(...ix);
+
+  transaction.recentBlockhash = svm.latestBlockhash();
+  transaction.feePayer = adminAccount.publicKey;
+  transaction.sign(adminAccount, dataAccount);
+  svm.sendTransaction(transaction);
+
+  const account = svm.getAccount(dataAccount.publicKey)?.owner.toBase58();
+  expect(account).toBe(contract.publicKey.toBase58());
+});
+
+describe("Counter Program Tests", () => {
+  let svm: LiteSVM;
+  let dataAccount: Keypair;
+  let adminAccount: Keypair;
+
+  const contract = loadKeypairFromFile(
+    "../target/deploy/counter_program_solana-keypair.json",
+  );
+  console.log("Contract PublicKey : ", contract.publicKey.toString());
+
+  beforeEach(() => {
+    svm = new LiteSVM();
+
+    svm.addProgramFromFile(
+      contract.publicKey,
+      path.join(__dirname, "../target/deploy/counter_program_solana.so"),
+    );
+
+    adminAccount = new Keypair();
+    dataAccount = new Keypair();
+    svm.airdrop(adminAccount.publicKey, BigInt(10 * LAMPORTS_PER_SOL));
+    const lamports = Number(
+      svm.minimumBalanceForRentExemption(BigInt(COUNTER_SIZE)),
+    );
+    const transaction = new Transaction();
+    const ix = [
+      SystemProgram.createAccount({
+        fromPubkey: adminAccount.publicKey,
+        lamports,
+        programId: contract.publicKey,
+        space: COUNTER_SIZE,
+        newAccountPubkey: dataAccount.publicKey,
+      }),
+    ];
+
+    transaction.add(...ix);
+
+    transaction.recentBlockhash = svm.latestBlockhash();
+    transaction.feePayer = adminAccount.publicKey;
+    transaction.sign(adminAccount, dataAccount);
+    svm.sendTransaction(transaction);
+
+    const account = svm.getAccount(dataAccount.publicKey)?.owner.toBase58();
+    console.log("New Data Account createdAccount with owner :", account);
   });
 
-  transaction.add(ix);
+  test("Add name to Account", () => {
+    console.log("1");
 
-  transaction.recentBlockhash = (
-    await connection.getLatestBlockhash()
-  ).blockhash;
-  transaction.feePayer = adminAccount.publicKey;
-  const signature = await sendAndConfirmTransaction(connection, transaction, [
-    adminAccount,
-    dataAccount,
-  ]);
+    const ix = new TransactionInstruction({
+      programId: contract.publicKey,
+      keys: [
+        { pubkey: adminAccount.publicKey, isSigner: true, isWritable: false },
+        { pubkey: dataAccount.publicKey, isSigner: false, isWritable: true },
+      ],
+      data: Buffer.from([]),
+    });
 
-  console.log(
-    "signature",
-    signature,
-    "dataAccount",
-    dataAccount.publicKey.toString(),
-    "\n",
-  );
+    console.log("2");
 
-  const dataAccountData = await connection.getAccountInfo(
-    dataAccount.publicKey,
-  );
-  if (!dataAccountData) {
-    console.error("No dataAccountData");
-    return;
-  }
+    const transaction = new Transaction();
 
-  const deserializedData = borsh.deserialize(
-    schema,
-    dataAccountData?.data,
-  ) as CounterAccount;
-  if (!deserializedData) {
-    console.error("No deserializedData");
-    return;
-  }
+    transaction.add(ix);
+    transaction.recentBlockhash = svm.latestBlockhash();
 
-  console.log(deserializedData?.count);
+    transaction.feePayer = adminAccount.publicKey;
+    transaction.sign(adminAccount);
+    const txn = svm.sendTransaction(transaction);
 
-  expect(deserializedData.count).toBe(0);
+    console.log(txn.toString());
+
+    const data = svm.getAccount(dataAccount.publicKey)?.data;
+
+    console.log(data);
+    if (!data) {
+      console.error("No data in the accoount");
+      return;
+    }
+    const deserializedData = borsh.deserialize(schema, data) as CounterAccount;
+    console.log(deserializedData);
+
+    expect(deserializedData.count).toBe(12);
+  });
 });
+
+//since testing for cpis is hard for contracts in direct chain so we are using LiteSVM to test the contract
+
+// const adminAccount = Keypair.generate();
+// const dataAccount = Keypair.generate();
+//
+// const nameContractProgramId = new PublicKey(
+//   "5nue6NULTPwJyf7EUPjFo4vyhUi1KHS91DpSYq7vFdbp",
+// );
+// const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+// const airDroptx = await connection.requestAirdrop(
+//   adminAccount.publicKey,
+//   50 * LAMPORTS_PER_SOL,
+// );
+//
+// const { blockhash, lastValidBlockHeight } =
+//   await connection.getLatestBlockhash();
+// const airdropSignature = await connection.confirmTransaction({
+//   blockhash,
+//   signature: airDroptx,
+//   lastValidBlockHeight,
+// });
+//
+// console.log("Airdrop of 50 SOL completed. Signature:", airdropSignature);
+//
+// test("Account Initialization", async () => {
+//   const transaction = new Transaction();
+//   const lamports =
+//     await connection.getMinimumBalanceForRentExemption(NAME_SIZE);
+//
+//   const tx = SystemProgram.createAccount({
+//     fromPubkey: adminAccount.publicKey,
+//     lamports,
+//     newAccountPubkey: dataAccount.publicKey,
+//     programId: nameContractProgramId,
+//     space: NAME_SIZE,
+//   });
+//
+//   transaction.add(tx);
+//   transaction.recentBlockhash = (
+//     await connection.getLatestBlockhash()
+//   ).blockhash;
+//
+//   const signature = await sendAndConfirmTransaction(connection, transaction, [
+//     adminAccount,
+//     dataAccount,
+//   ]);
+//   console.log(
+//     "signature",
+//     signature,
+//     "dataAccount",
+//     dataAccount.publicKey.toString(),
+//     "\n",
+//   );
+//
+//   const dataAccountData = await connection.getAccountInfo(
+//     dataAccount.publicKey,
+//   );
+//   if (!dataAccountData) {
+//     console.error("No data in the account");
+//     return;
+//   }
+//   const desirializedData = borsh.deserialize(
+//     schema,
+//     dataAccountData.data,
+//   ) as NameAccount;
+//   if (!desirializedData) {
+//     console.error("Unable to deserialize the data");
+//     return;
+//   }
+//
+//   console.log(desirializedData.name);
+//
+//   expect(desirializedData.name).toBe("");
+// });

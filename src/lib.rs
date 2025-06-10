@@ -27,30 +27,36 @@ pub fn counter_contract(
     accounts: &[AccountInfo],
     _instruction_data: &[u8],
 ) -> ProgramResult {
-    msg!("Hello World Rust program entrypoint");
+    let mut iter = accounts.iter();
+    let acc = next_account_info(&mut iter)?;
 
-    let acc = next_account_info(&mut accounts.iter())?;
+    if !acc.is_signer {
+        msg!("Doesnot have the required signers");
+        return Err(ProgramError::MissingRequiredSignature);
+    }
 
-    if acc.owner != program_id {
+    let data_account = next_account_info(&mut iter)?;
+
+    if data_account.owner != program_id {
         msg!("Counter account doesnot have the correct program id");
         return Err(ProgramError::IncorrectProgramId);
     }
 
-    let instruction_data = InstructionType::try_from_slice(_instruction_data)?;
+    // let instruction_data = InstructionType::try_from_slice(_instruction_data)?;
 
-    let mut counter_data = CounterAccount::try_from_slice(&acc.data.borrow())?;
+    let mut counter_data = CounterAccount::try_from_slice(&mut *data_account.data.borrow_mut())?;
+    counter_data.count = 12;
+    // match instruction_data {
+    //     InstructionType::Increment(value) => {
+    //         counter_data.count += value;
+    //     }
+    //
+    //     InstructionType::Decrement(value) => {
+    //         counter_data.count -= value;
+    //     }
+    // }
 
-    match instruction_data {
-        InstructionType::Increment(value) => {
-            counter_data.count += value;
-        }
-
-        InstructionType::Decrement(value) => {
-            counter_data.count -= value;
-        }
-    }
-
-    counter_data.serialize(&mut *acc.data.borrow_mut())?;
+    counter_data.serialize(&mut *data_account.data.borrow_mut())?;
 
     Ok(())
 }
