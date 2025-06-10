@@ -1,4 +1,6 @@
+cargo-features = ["edition2024"]
 [package]
+
 name = "counter-program-solana"
 version = "0.1.0"
 edition = "2024"
