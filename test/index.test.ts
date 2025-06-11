@@ -106,7 +106,7 @@ describe("Counter Program Tests", () => {
     console.log("New Data Account createdAccount with owner :", account);
   });
 
-  test("Add name to Account", () => {
+  test("Add counter to Account", () => {
     console.log("1");
 
     const ix = new TransactionInstruction({
