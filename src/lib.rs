@@ -34,9 +34,9 @@ pub fn counter_contract(
         msg!("Doesnot have the required signers");
         return Err(ProgramError::MissingRequiredSignature);
     }
-
+    msg!("Counter contract program id: {:?}", program_id);
     let data_account = next_account_info(&mut iter)?;
-
+    msg!("Data account: {:?}", data_account.owner);
     if data_account.owner != program_id {
         msg!("Counter account doesnot have the correct program id");
         return Err(ProgramError::IncorrectProgramId);

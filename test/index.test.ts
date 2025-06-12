@@ -1,5 +1,4 @@
 import path from "path";
-import { readFileSync } from "fs";
 import * as borsh from "borsh";
 import {
   Keypair,
@@ -9,16 +8,13 @@ import {
   TransactionInstruction,
 } from "@solana/web3.js";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { COUNTER_SIZE, CounterAccount, schema } from "./utils/borsh";
+import {
+  COUNTER_SIZE,
+  CounterAccount,
+  schema,
+  loadKeypairFromFile,
+} from "./utils/borsh";
 import { LiteSVM } from "litesvm";
-
-function loadKeypairFromFile(filePath: string): Keypair {
-  const resolvedPath = path.join(__dirname, filePath);
-  const loadedKeyBytes = Uint8Array.from(
-    JSON.parse(readFileSync(resolvedPath, "utf8")),
-  );
-  return Keypair.fromSecretKey(loadedKeyBytes);
-}
 
 test("Account Initialization Test", () => {
   const svm = new LiteSVM();
